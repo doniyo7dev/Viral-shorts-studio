@@ -1,0 +1,495 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Videolarim — Viral Shorts Studio</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="/js/icons.js"></script>
+<link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+<div id="ambient-bg"></div>
+<div id="sidebar" class="sidebar"></div>
+
+<main class="main-content max-w-5xl mx-auto space-y-6">
+    <div class="flex flex-col md:flex-row md:justify-between md:items-center gap-4">
+        <div>
+            <h2 class="text-2xl md:text-3xl font-bold mb-1">Videolarim</h2>
+            <p class="text-gray-400 text-sm">Video yuklang, AI bilan sarlavha/tavsif yozdiring va YouTube'ga joylang</p>
+        </div>
+        <button id="upload-btn" class="btn-primary flex items-center gap-2 justify-center">
+            <i data-lucide="plus" style="width:20px;height:20px;"></i>
+            <span>Yangi video</span>
+        </button>
+    </div>
+
+    <div id="upload-progress-box" class="hidden glass-card p-4">
+        <div class="flex justify-between text-sm mb-2">
+            <span id="upload-progress-label">Yuklanmoqda...</span>
+            <span id="upload-progress-percent">0%</span>
+        </div>
+        <div class="progress-track"><div id="upload-progress-fill" class="progress-fill" style="width:0%"></div></div>
+    </div>
+
+    <div class="flex items-center justify-between">
+        <h3 class="text-base md:text-lg font-semibold">Barcha videolar</h3>
+        <button id="cancel-all-btn" class="btn-secondary text-xs py-2 px-3 flex items-center gap-1.5" title="Barcha rejalashtirilgan videolarni bekor qilib, Draft holatiga qaytaradi">
+            <i data-lucide="x-circle" style="width:14px;height:14px;"></i>
+            Rejalarni bekor qilish
+        </button>
+    </div>
+
+    <div id="videos-list" class="space-y-3">
+        <div class="glass-card skeleton h-24"></div>
+        <div class="glass-card skeleton h-24"></div>
+        <div class="glass-card skeleton h-24"></div>
+    </div>
+</main>
+
+<nav id="bottom-nav" class="bottom-nav"></nav>
+
+<script src="/js/api.js"></script>
+<script src="/js/common.js"></script>
+<script>
+let currentVideos = [];
+let pollTimer = null;
+
+async function loadVideos() {
+    try {
+        currentVideos = await api.getShorts({ manual_only: "true" });
+        renderVideos();
+    } catch (e) {
+        showToast("Videolarni yuklashda xato: " + e.message, "error");
+    }
+}
+
+function renderVideos() {
+    const container = document.getElementById("videos-list");
+    if (!currentVideos.length) {
+        container.innerHTML = emptyState(
+            "cloud-arrow-up", "Hozircha video yo'q",
+            "Birinchi videongizni yuklang — AI orqali sarlavha va tavsifni avtomatik yozdirib, YouTube'ga joylashtirishingiz mumkin.",
+            `<button onclick="document.getElementById('upload-btn').click()" class="btn-secondary flex items-center gap-2"><i data-lucide="arrow-up-tray" style="width:16px;height:16px;"></i>Video Yuklash</button>`
+        );
+        if (window.lucide) lucide.createIcons();
+        return;
+    }
+    container.innerHTML = currentVideos.map(v => videoRow(v)).join("");
+    if (window.lucide) lucide.createIcons();
+}
+
+function videoRow(v) {
+    const thumbUrl = v.thumbnail_url || "";
+    const visLabel = { public: "Public", private: "Private", unlisted: "Unlisted" }[v.visibility] || "Public";
+    return `<div class="glass-card p-3 md:p-4 flex flex-col sm:flex-row gap-3 sm:items-center">
+        <div class="relative w-full sm:w-32 h-40 sm:h-20 rounded-xl bg-black/40 overflow-hidden flex-shrink-0">
+            ${thumbUrl ? `<img src="${thumbUrl}" class="w-full h-full object-cover" loading="lazy">` : `<div class="w-full h-full flex items-center justify-center"><i data-lucide="film" style="width:24px;height:24px;color:#4b5563;"></i></div>`}
+            <div class="absolute top-1.5 left-1.5">${statusBadge(v.status)}</div>
+        </div>
+        <div class="flex-1 min-w-0">
+            <p class="font-medium truncate mb-1">${escapeHtml(v.title || "Nomsiz video")}</p>
+            <p class="text-xs text-gray-500 mb-1 truncate">${escapeHtml((v.description || "").slice(0, 90))}</p>
+            <div class="flex items-center gap-3 text-xs text-gray-500 flex-wrap">
+                <span class="flex items-center gap-1"><i data-lucide="clock" style="width:12px;height:12px;"></i>${formatDuration(v.duration)}</span>
+                <span>${formatDate(v.created_at)}</span>
+                <span class="flex items-center gap-1"><i data-lucide="eye" style="width:12px;height:12px;"></i>${visLabel}</span>
+                ${v.ai_topic ? `<span class="flex items-center gap-1 text-purple-300"><i data-lucide="sparkles" style="width:12px;height:12px;"></i>${escapeHtml(v.ai_topic)}</span>` : ""}
+            </div>
+        </div>
+        <div class="flex gap-2 flex-wrap sm:flex-nowrap">
+            <button onclick="viewVideo(${v.id})" class="btn-secondary text-xs py-2 px-3 flex items-center gap-1.5" title="Ko'rish">
+                <i data-lucide="eye" style="width:14px;height:14px;"></i>
+            </button>
+            <button onclick="openVideoEditor(${v.id})" class="btn-secondary text-xs py-2 px-3 flex items-center gap-1.5" title="Tahrirlash">
+                <i data-lucide="pencil-square" style="width:14px;height:14px;"></i>
+            </button>
+            <button onclick="renderVideoNow(${v.id})" class="btn-secondary text-xs py-2 px-3 flex items-center gap-1.5" title="Render navbatiga qo'yish">
+                <i data-lucide="queue-list" style="width:14px;height:14px;"></i>
+            </button>
+            <button onclick="uploadVideoNow(${v.id})" class="btn-primary text-xs py-2 px-3 flex items-center gap-1.5" title="YouTube'ga hozir yuklash">
+                <i data-lucide="arrow-up-tray" style="width:14px;height:14px;"></i>
+            </button>
+            <button onclick="deleteVideoConfirm(${v.id})" class="btn-danger text-xs py-2 px-3" title="O'chirish">
+                <i data-lucide="trash-2" style="width:14px;height:14px;"></i>
+            </button>
+        </div>
+    </div>`;
+}
+
+function viewVideo(id) {
+    const v = currentVideos.find(x => x.id === id);
+    if (!v || !v.video_url) { showToast("Video fayl topilmadi", "error"); return; }
+    openModal(`
+        <div class="p-4 w-full max-w-lg">
+            <div class="flex justify-between items-center mb-3">
+                <h3 class="text-lg font-semibold truncate pr-3">${escapeHtml(v.title || "Video")}</h3>
+                <button onclick="closeModal()" class="text-gray-400 hover:text-white flex-shrink-0"><i data-lucide="x" style="width:22px;height:22px;"></i></button>
+            </div>
+            <video src="${v.video_url}" controls autoplay class="w-full rounded-xl bg-black max-h-[70vh]"></video>
+        </div>
+    `);
+}
+
+async function renderVideoNow(id) {
+    try {
+        await api.renderShort(id);
+        showToast("Render navbatga qo'shildi", "success");
+        startPolling();
+    } catch (e) {
+        showToast("Xato: " + e.message, "error");
+    }
+}
+
+async function uploadVideoNow(id) {
+    if (!confirm("Bu videoni hozir YouTube'ga yuklashni xohlaysizmi?")) return;
+    try {
+        await api.uploadShortNow(id);
+        showToast("Yuklash navbatga qo'shildi. Holatni Dashboard'da kuzatishingiz mumkin.", "success");
+        loadVideos();
+    } catch (e) {
+        showToast("Xato: " + e.message, "error");
+    }
+}
+
+async function deleteVideoConfirm(id) {
+    if (!confirm("Bu videoni o'chirmoqchimisiz?")) return;
+    try {
+        await api.deleteShort(id);
+        showToast("Video o'chirildi", "success");
+        loadVideos();
+    } catch (e) {
+        showToast("Xato: " + e.message, "error");
+    }
+}
+
+document.getElementById("cancel-all-btn").addEventListener("click", async () => {
+    if (!confirm("Barcha rejalashtirilgan videolarni bekor qilib, Draft holatiga qaytarmoqchimisiz?")) return;
+    try {
+        const result = await api.cancelAllScheduled();
+        showToast(`${result.cancelled_count} ta video bekor qilindi`, "success");
+        loadVideos();
+    } catch (e) {
+        showToast("Xato: " + e.message, "error");
+    }
+});
+
+/* -------------------- Yangi video yuklash -------------------- */
+document.getElementById("upload-btn").addEventListener("click", () => {
+    openModal(`
+        <div class="p-5 md:p-6 w-full max-w-md">
+            <h3 class="text-lg font-semibold mb-1">Yangi video yuklash</h3>
+            <p class="text-xs text-gray-400 mb-4">Video o'z holida saqlanadi (tahrirlanmaydi). Sarlavha/tavsifni bo'sh qoldirsangiz, Settings &gt; Yuklash sozlamalaridagi default shablon ishlatiladi.</p>
+            <div class="space-y-3">
+                <div>
+                    <label class="text-xs text-gray-400 mb-1 block">Video fayl</label>
+                    <input type="file" id="new-file-picker" accept="video/*" class="glass-input">
+                </div>
+                <div>
+                    <label class="text-xs text-gray-400 mb-1 block">Sarlavha (ixtiyoriy)</label>
+                    <input type="text" id="new-title" class="glass-input" placeholder="Video sarlavhasi">
+                </div>
+                <div>
+                    <label class="text-xs text-gray-400 mb-1 block">Tavsif (ixtiyoriy)</label>
+                    <textarea id="new-description" class="glass-input" rows="3" placeholder="Video tavsifi"></textarea>
+                </div>
+                <div>
+                    <label class="text-xs text-gray-400 mb-1 block">Ko'rinish (Visibility)</label>
+                    <select id="new-visibility" class="glass-input">
+                        <option value="public" selected>Public</option>
+                        <option value="unlisted">Unlisted</option>
+                        <option value="private">Private</option>
+                    </select>
+                </div>
+            </div>
+            <div class="flex gap-2 mt-5">
+                <button onclick="closeModal()" class="flex-1 btn-secondary flex items-center justify-center gap-2"><i data-lucide="x" style="width:16px;height:16px;"></i>Bekor qilish</button>
+                <button onclick="submitNewVideo()" class="flex-1 btn-primary flex items-center justify-center gap-2"><i data-lucide="arrow-up-tray" style="width:16px;height:16px;"></i>Yuklash</button>
+            </div>
+        </div>
+    `);
+});
+
+async function submitNewVideo() {
+    const fileInput = document.getElementById("new-file-picker");
+    const file = fileInput.files[0];
+    if (!file) { showToast("Avval video faylni tanlang", "error"); return; }
+
+    const title = document.getElementById("new-title").value.trim();
+    const description = document.getElementById("new-description").value.trim();
+    const visibility = document.getElementById("new-visibility").value;
+
+    closeModal();
+
+    const box = document.getElementById("upload-progress-box");
+    const fill = document.getElementById("upload-progress-fill");
+    const percentLabel = document.getElementById("upload-progress-percent");
+    const label = document.getElementById("upload-progress-label");
+    box.classList.remove("hidden");
+    label.textContent = `Yuklanmoqda: ${file.name}`;
+
+    const formData = new FormData();
+    formData.append("file", file);
+    if (title) formData.append("title", title);
+    if (description) formData.append("description", description);
+    formData.append("visibility", visibility);
+
+    try {
+        const xhr = new XMLHttpRequest();
+        await new Promise((resolve, reject) => {
+            xhr.open("POST", "/api/shorts/upload-manual");
+            xhr.upload.onprogress = (evt) => {
+                if (evt.lengthComputable) {
+                    const percent = Math.round((evt.loaded / evt.total) * 100);
+                    fill.style.width = percent + "%";
+                    percentLabel.textContent = percent + "%";
+                }
+            };
+            xhr.onload = () => {
+                if (xhr.status >= 200 && xhr.status < 300) resolve();
+                else reject(new Error("Yuklashda xato: HTTP " + xhr.status));
+            };
+            xhr.onerror = () => reject(new Error("Tarmoq xatosi"));
+            xhr.send(formData);
+        });
+
+        showToast("Video muvaffaqiyatli yuklandi!", "success");
+        box.classList.add("hidden");
+        fill.style.width = "0%";
+        loadVideos();
+    } catch (err) {
+        showToast("Yuklashda xato: " + err.message, "error");
+        box.classList.add("hidden");
+    }
+}
+
+/* -------------------- Video Tahrirlash / AI -------------------- */
+async function openVideoEditor(videoId) {
+    try {
+        const v = await api.getShort(videoId);
+        const playlists = await api.getPlaylists().catch(() => []);
+        const categories = await api.getCategories().catch(() => ({}));
+
+        const playlistOptions = playlists.map(p => `<option value="${p.id}" ${v.playlist_id === p.id ? "selected" : ""}>${escapeHtml(p.title)}</option>`).join("");
+        const categoryOptions = Object.entries(categories).map(([id, name]) => `<option value="${id}" ${v.category_id === id ? "selected" : ""}>${escapeHtml(name)}</option>`).join("");
+
+        openModal(`
+            <div class="flex justify-between items-center mb-5">
+                <h3 class="text-lg font-semibold">Video Tahrirlash</h3>
+                <button onclick="closeModal()" class="text-gray-400 hover:text-white"><i data-lucide="x" style="width:22px;height:22px;"></i></button>
+            </div>
+            <div class="space-y-4">
+                <div id="ai-analysis-panel">${aiAnalysisPanel(v)}</div>
+
+                <div>
+                    <div class="flex items-center justify-between mb-1">
+                        <label class="block text-sm font-medium text-gray-400">Title</label>
+                        <button onclick="aiGenerateField(${v.id}, 'title')" class="text-xs text-purple-300 hover:text-purple-200 flex items-center gap-1">
+                            <i data-lucide="sparkles" style="width:12px;height:12px;"></i> AI Generate (Groq)
+                        </button>
+                    </div>
+                    <input type="text" id="edit-title" value="${escapeHtml(v.title || '')}" class="glass-input">
+                </div>
+                <div>
+                    <div class="flex items-center justify-between mb-1">
+                        <label class="block text-sm font-medium text-gray-400">Description</label>
+                        <button onclick="aiGenerateField(${v.id}, 'description')" class="text-xs text-purple-300 hover:text-purple-200 flex items-center gap-1">
+                            <i data-lucide="sparkles" style="width:12px;height:12px;"></i> AI Generate (Groq)
+                        </button>
+                    </div>
+                    <textarea id="edit-description" rows="3" class="glass-input resize-none">${escapeHtml(v.description || '')}</textarea>
+                </div>
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-400 mb-1">Hashtags</label>
+                        <input type="text" id="edit-hashtags" value="${escapeHtml(v.hashtags || '')}" class="glass-input" placeholder="#shorts #viral">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-400 mb-1">Keywords</label>
+                        <input type="text" id="edit-keywords" value="${escapeHtml(v.keywords || '')}" class="glass-input" placeholder="kalit, so'z">
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-400 mb-1">Playlist</label>
+                        <select id="edit-playlist" class="glass-input"><option value="">Tanlanmagan</option>${playlistOptions}</select>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-400 mb-1">Category</label>
+                        <select id="edit-category" class="glass-input">${categoryOptions}</select>
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-400 mb-1">Visibility</label>
+                        <select id="edit-visibility" class="glass-input">
+                            <option value="public" ${v.visibility === 'public' ? 'selected' : ''}>Public</option>
+                            <option value="unlisted" ${v.visibility === 'unlisted' ? 'selected' : ''}>Unlisted</option>
+                            <option value="private" ${v.visibility === 'private' ? 'selected' : ''}>Private</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-400 mb-1">Format (ixtiyoriy)</label>
+                        <select id="edit-crop" class="glass-input">
+                            <option value="none" ${v.crop_mode === 'none' ? 'selected' : ''}>O'zgartirmasin (asl format)</option>
+                            <option value="center" ${v.crop_mode === 'center' ? 'selected' : ''}>9:16 — Markazdan crop</option>
+                            <option value="top" ${v.crop_mode === 'top' ? 'selected' : ''}>9:16 — Tepadan crop</option>
+                            <option value="blur_pad" ${v.crop_mode === 'blur_pad' ? 'selected' : ''}>9:16 — Blur Padding</option>
+                        </select>
+                    </div>
+                </div>
+
+                <div class="flex items-center justify-between p-3 rounded-xl bg-white/5">
+                    <span class="text-sm">Kids uchun (Made for Kids)</span>
+                    <div class="toggle-switch ${v.made_for_kids ? 'active' : ''}" id="edit-kids-toggle" onclick="this.classList.toggle('active')">
+                        <div class="toggle-dot"></div>
+                    </div>
+                </div>
+
+                <details class="border-t border-white/10 pt-3">
+                    <summary class="text-sm font-medium text-gray-400 cursor-pointer">Subtitr qo'shish</summary>
+                    <textarea id="edit-subtitle-text" rows="3" class="glass-input resize-none mt-2" placeholder="Subtitr matnini kiriting...">${escapeHtml(v.subtitle_text || '')}</textarea>
+                    <button onclick="applySubtitle(${v.id})" class="btn-secondary text-sm mt-2 w-full flex items-center justify-center gap-2"><i data-lucide="language" style="width:16px;height:16px;"></i>Subtitr qo'shib qayta render qilish</button>
+                </details>
+
+                <details class="border-t border-white/10 pt-3">
+                    <summary class="text-sm font-medium text-gray-400 cursor-pointer">Watermark qo'shish</summary>
+                    <input type="file" id="edit-watermark-file" accept="image/png,image/jpeg" class="glass-input mt-2">
+                    <button onclick="applyWatermark(${v.id})" class="btn-secondary text-sm mt-2 w-full flex items-center justify-center gap-2"><i data-lucide="photo" style="width:16px;height:16px;"></i>Watermark qo'shib qayta render qilish</button>
+                </details>
+
+                <div class="flex gap-3 pt-2">
+                    <button onclick="saveVideoEdits(${v.id})" class="flex-1 btn-primary flex items-center justify-center gap-2">
+                        <i data-lucide="check" style="width:16px;height:16px;"></i> Saqlash
+                    </button>
+                </div>
+            </div>
+        `);
+    } catch (e) {
+        showToast("Xato: " + e.message, "error");
+    }
+}
+
+function aiAnalysisPanel(v) {
+    if (!v.ai_topic && !v.ai_analyzed_at) {
+        return `<div class="p-4 rounded-xl bg-purple-900/15 border border-purple-500/20 flex items-center justify-between gap-3">
+            <div class="text-sm text-purple-200">
+                <p class="font-medium mb-0.5">AI video tahlili</p>
+                <p class="text-xs text-purple-300/80">Video audiosini tahlil qilib, mavzu/til/kategoriya/kalit so'z va viral tavsiyalarni chiqaradi.</p>
+            </div>
+            <button onclick="runAiAnalysis(${v.id})" class="btn-secondary text-xs py-2 px-3 flex-shrink-0 flex items-center gap-1.5">
+                <i data-lucide="sparkles" style="width:14px;height:14px;"></i> Tahlil qilish
+            </button>
+        </div>`;
+    }
+    return `<div class="p-4 rounded-xl bg-purple-900/15 border border-purple-500/20 space-y-2">
+        <div class="flex items-center justify-between">
+            <p class="font-medium text-sm text-purple-200 flex items-center gap-1.5"><i data-lucide="sparkles" style="width:14px;height:14px;"></i> AI video tahlili</p>
+            <button onclick="runAiAnalysis(${v.id})" class="text-xs text-gray-400 hover:text-white flex items-center gap-1"><i data-lucide="refresh-cw" style="width:12px;height:12px;"></i> Qayta tahlil</button>
+        </div>
+        <div class="grid grid-cols-2 gap-2 text-xs">
+            <div><span class="text-gray-500">Mavzu:</span> <span class="text-gray-200">${escapeHtml(v.ai_topic || '-')}</span></div>
+            <div><span class="text-gray-500">Til:</span> <span class="text-gray-200">${escapeHtml(v.ai_language || '-')}</span></div>
+            <div><span class="text-gray-500">Kategoriya:</span> <span class="text-gray-200">${escapeHtml(v.ai_category || '-')}</span></div>
+            <div><span class="text-gray-500">Kalit so'zlar:</span> <span class="text-gray-200">${escapeHtml(v.ai_keywords || '-')}</span></div>
+        </div>
+        ${v.ai_viral_tips ? `<div class="text-xs pt-1 border-t border-white/10"><span class="text-gray-500">Viral tavsiyalar:</span><p class="text-gray-200 whitespace-pre-line mt-1">${escapeHtml(v.ai_viral_tips)}</p></div>` : ""}
+    </div>`;
+}
+
+async function runAiAnalysis(videoId) {
+    const panel = document.getElementById("ai-analysis-panel");
+    panel.innerHTML = loadingSpinner("AI video mazmunini tahlil qilmoqda...");
+    try {
+        const v = await api.analyzeShortContent(videoId);
+        panel.innerHTML = aiAnalysisPanel({
+            ai_topic: v.topic, ai_language: v.language, ai_category: v.category,
+            ai_keywords: v.keywords, ai_viral_tips: v.viral_tips, ai_analyzed_at: true,
+        });
+        if (window.lucide) lucide.createIcons();
+        showToast("AI tahlil yakunlandi", "success");
+        loadVideos();
+    } catch (e) {
+        panel.innerHTML = aiAnalysisPanel({});
+        if (window.lucide) lucide.createIcons();
+        showToast("AI tahlilida xato: " + e.message, "error");
+    }
+}
+
+async function aiGenerateField(videoId, field) {
+    showToast("Groq orqali generatsiya qilinmoqda...", "info");
+    try {
+        const result = await api.generateMetadata(videoId);
+        document.getElementById("edit-title").value = result.title || "";
+        document.getElementById("edit-description").value = result.description || "";
+        document.getElementById("edit-hashtags").value = result.hashtags || "";
+        document.getElementById("edit-keywords").value = result.keywords || "";
+        showToast("Metadata generatsiya qilindi", "success");
+    } catch (e) {
+        showToast("Xato: " + e.message, "error");
+    }
+}
+
+async function saveVideoEdits(videoId) {
+    const payload = {
+        title: document.getElementById("edit-title").value,
+        description: document.getElementById("edit-description").value,
+        hashtags: document.getElementById("edit-hashtags").value,
+        keywords: document.getElementById("edit-keywords").value,
+        playlist_id: document.getElementById("edit-playlist").value || null,
+        category_id: document.getElementById("edit-category").value,
+        visibility: document.getElementById("edit-visibility").value,
+        made_for_kids: document.getElementById("edit-kids-toggle").classList.contains("active"),
+    };
+    const newCrop = document.getElementById("edit-crop").value;
+    try {
+        await api.updateShort(videoId, payload);
+        await api.setCropMode(videoId, newCrop);
+        showToast("O'zgarishlar saqlandi", "success");
+        closeModal();
+        loadVideos();
+    } catch (e) {
+        showToast("Saqlashda xato: " + e.message, "error");
+    }
+}
+
+async function applySubtitle(videoId) {
+    const text = document.getElementById("edit-subtitle-text").value;
+    if (!text.trim()) { showToast("Subtitr matnini kiriting", "error"); return; }
+    try {
+        await api.setSubtitle(videoId, { subtitle_text: text, subtitle_enabled: true });
+        showToast("Subtitr bilan qayta render navbatga qo'shildi", "success");
+        closeModal();
+        startPolling();
+    } catch (e) {
+        showToast("Xato: " + e.message, "error");
+    }
+}
+
+async function applyWatermark(videoId) {
+    const fileInput = document.getElementById("edit-watermark-file");
+    if (!fileInput.files.length) { showToast("Watermark rasmini tanlang", "error"); return; }
+    const formData = new FormData();
+    formData.append("file", fileInput.files[0]);
+    try {
+        await api.setWatermark(videoId, true, formData);
+        showToast("Watermark bilan qayta render navbatga qo'shildi", "success");
+        closeModal();
+        startPolling();
+    } catch (e) {
+        showToast("Xato: " + e.message, "error");
+    }
+}
+
+function startPolling() {
+    if (pollTimer) clearInterval(pollTimer);
+    pollTimer = setInterval(loadVideos, 4000);
+}
+
+loadVideos();
+startPolling();
+</script>
+</body>
+</html>

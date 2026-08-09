@@ -1,0 +1,518 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Calendar — Viral Shorts Studio</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="/js/icons.js"></script>
+<link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+<div id="ambient-bg"></div>
+<div id="sidebar" class="sidebar"></div>
+
+<main class="main-content max-w-7xl mx-auto flex flex-col" style="min-height: calc(100vh - 2rem);">
+    <div class="flex flex-col md:flex-row md:justify-between md:items-center gap-4 mb-6">
+        <div>
+            <h2 class="text-2xl md:text-3xl font-bold mb-1">Calendar Scheduler</h2>
+            <p class="text-gray-400 text-sm" id="tz-label">Yuklash jadvali (Asia/Tashkent)</p>
+        </div>
+        <div class="flex flex-wrap gap-2">
+            <div class="bg-white/5 border border-white/10 rounded-xl p-1 flex text-sm">
+                <button data-view="Day" class="view-btn px-3 py-1.5 rounded-lg font-medium transition-all text-gray-400">Day</button>
+                <button data-view="Week" class="view-btn px-3 py-1.5 rounded-lg font-medium transition-all bg-purple-600 text-white">Week</button>
+                <button data-view="Month" class="view-btn px-3 py-1.5 rounded-lg font-medium transition-all text-gray-400">Month</button>
+            </div>
+            <button onclick="openAutoScheduleModal()" class="btn-secondary text-sm flex items-center gap-2">
+                <i data-lucide="settings-2" style="width:16px;height:16px;"></i> Auto Schedule
+            </button>
+        </div>
+    </div>
+
+    <div class="flex items-center justify-between mb-4">
+        <button onclick="navigateDate(-1)" class="btn-secondary p-2"><i data-lucide="chevron-left" style="width:18px;height:18px;"></i></button>
+        <h3 id="date-range-label" class="text-base md:text-lg font-semibold"></h3>
+        <button onclick="navigateDate(1)" class="btn-secondary p-2"><i data-lucide="chevron-right" style="width:18px;height:18px;"></i></button>
+    </div>
+
+    <div id="calendar-container" class="flex-1 glass-card overflow-hidden flex flex-col min-h-[500px]"></div>
+</main>
+
+<nav id="bottom-nav" class="bottom-nav"></nav>
+
+<script src="/js/api.js"></script>
+<script src="/js/common.js"></script>
+<script>
+let currentView = "Week";
+let currentDate = new Date();
+let currentTimezone = "Asia/Tashkent";
+let calendarEvents = [];
+
+const DAY_NAMES_UZ = ["Yak", "Dush", "Sesh", "Chor", "Pay", "Jum", "Shan"];
+const MONTH_NAMES_UZ = ["Yanvar","Fevral","Mart","Aprel","May","Iyun","Iyul","Avgust","Sentabr","Oktabr","Noyabr","Dekabr"];
+
+document.querySelectorAll(".view-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+        currentView = btn.dataset.view;
+        document.querySelectorAll(".view-btn").forEach(b => {
+            b.classList.remove("bg-purple-600", "text-white");
+            b.classList.add("text-gray-400");
+        });
+        btn.classList.add("bg-purple-600", "text-white");
+        btn.classList.remove("text-gray-400");
+        renderCalendar();
+    });
+});
+
+function navigateDate(direction) {
+    const d = new Date(currentDate);
+    if (currentView === "Day") d.setDate(d.getDate() + direction);
+    else if (currentView === "Week") d.setDate(d.getDate() + direction * 7);
+    else d.setMonth(d.getMonth() + direction);
+    currentDate = d;
+    renderCalendar();
+}
+
+function startOfWeek(date) {
+    const d = new Date(date);
+    const day = d.getDay();
+    const diff = (day === 0 ? -6 : 1) - day;
+    d.setDate(d.getDate() + diff);
+    d.setHours(0, 0, 0, 0);
+    return d;
+}
+
+function isSameDay(d1, d2) {
+    return d1.getFullYear() === d2.getFullYear() && d1.getMonth() === d2.getMonth() && d1.getDate() === d2.getDate();
+}
+
+function toLocalISODateTime(date) {
+    const pad = n => String(n).padStart(2, "0");
+    return `${date.getFullYear()}-${pad(date.getMonth()+1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}:00`;
+}
+
+async function loadTimezone() {
+    try {
+        const res = await api.getTimezone();
+        currentTimezone = res.timezone;
+        document.getElementById("tz-label").textContent = `Yuklash jadvali (${currentTimezone})`;
+    } catch (e) { /* default qoladi */ }
+}
+
+async function fetchEvents(startUtc, endUtc) {
+    try {
+        calendarEvents = await api.getEvents(startUtc, endUtc);
+    } catch (e) {
+        calendarEvents = [];
+        showToast("Hodisalarni yuklashda xato: " + e.message, "error");
+    }
+}
+
+function eventLocalDate(ev) {
+    if (!ev.scheduled_at) return null;
+    const iso = ev.scheduled_at.includes("Z") || ev.scheduled_at.includes("+") ? ev.scheduled_at : ev.scheduled_at + "Z";
+    return new Date(iso);
+}
+
+async function renderCalendar() {
+    const container = document.getElementById("calendar-container");
+    container.innerHTML = loadingSpinner("Kalendar yuklanmoqda...");
+
+    let rangeStart, rangeEnd, label;
+    if (currentView === "Day") {
+        rangeStart = new Date(currentDate); rangeStart.setHours(0,0,0,0);
+        rangeEnd = new Date(currentDate); rangeEnd.setHours(23,59,59,999);
+        label = `${currentDate.getDate()} ${MONTH_NAMES_UZ[currentDate.getMonth()]} ${currentDate.getFullYear()}`;
+    } else if (currentView === "Week") {
+        rangeStart = startOfWeek(currentDate);
+        rangeEnd = new Date(rangeStart); rangeEnd.setDate(rangeEnd.getDate() + 6); rangeEnd.setHours(23,59,59,999);
+        label = `${rangeStart.getDate()} ${MONTH_NAMES_UZ[rangeStart.getMonth()]} — ${rangeEnd.getDate()} ${MONTH_NAMES_UZ[rangeEnd.getMonth()]}`;
+    } else {
+        rangeStart = new Date(currentDate.getFullYear(), currentDate.getMonth(), 1);
+        rangeEnd = new Date(currentDate.getFullYear(), currentDate.getMonth() + 1, 0, 23, 59, 59);
+        label = `${MONTH_NAMES_UZ[currentDate.getMonth()]} ${currentDate.getFullYear()}`;
+    }
+    document.getElementById("date-range-label").textContent = label;
+
+    await fetchEvents(rangeStart.toISOString(), rangeEnd.toISOString());
+
+    if (currentView === "Day") renderDayView(container, currentDate);
+    else if (currentView === "Week") renderWeekView(container, startOfWeek(currentDate));
+    else renderMonthView(container, currentDate);
+
+    if (window.lucide) lucide.createIcons();
+}
+
+function getSlotsTimeList() {
+    return Array.from({length: 24}, (_, h) => h);
+}
+
+function renderDayView(container, date) {
+    const hours = getSlotsTimeList();
+    const dayEvents = calendarEvents.filter(ev => {
+        const d = eventLocalDate(ev);
+        return d && isSameDay(d, date);
+    });
+
+    container.innerHTML = `<div class="flex flex-col h-full">
+        <div class="p-4 text-center border-b border-white/10 bg-black/20">
+            <div class="text-sm text-gray-400">${DAY_NAMES_UZ[date.getDay()]}</div>
+            <div class="text-2xl font-bold">${date.getDate()} ${MONTH_NAMES_UZ[date.getMonth()]}</div>
+        </div>
+        <div class="flex-1 overflow-y-auto">
+            ${hours.map(h => {
+                const hourEvents = dayEvents.filter(ev => eventLocalDate(ev).getHours() === h);
+                return `<div class="flex border-b border-white/5 min-h-[60px]">
+                    <div class="w-16 flex-shrink-0 p-2 text-xs text-gray-500 text-right pr-3 pt-2">${String(h).padStart(2,'0')}:00</div>
+                    <div class="flex-1 p-2 space-y-2 dropzone" ondragover="onDragOver(event)" ondrop="onDrop(event, '${date.toISOString()}', ${h})">
+                        ${hourEvents.map(ev => calendarCard(ev)).join("")}
+                    </div>
+                </div>`;
+            }).join("")}
+        </div>
+    </div>`;
+}
+
+function renderWeekView(container, weekStart) {
+    const weekDays = Array.from({length: 7}, (_, i) => {
+        const d = new Date(weekStart); d.setDate(d.getDate() + i); return d;
+    });
+    const timeSlots = [...new Set(calendarEvents.map(ev => eventLocalDate(ev)).filter(Boolean).map(d => d.getHours()))];
+    const defaultSlots = [9, 13, 18, 21];
+    const allSlots = [...new Set([...defaultSlots, ...timeSlots])].sort((a,b) => a-b);
+
+    container.innerHTML = `
+        <div class="grid grid-cols-8 border-b border-white/10 bg-black/20 sticky top-0 z-10">
+            <div class="p-2 md:p-4 border-r border-white/10 flex items-center justify-center text-gray-500 text-xs md:text-sm font-medium">Vaqt</div>
+            ${weekDays.map(date => `
+                <div class="p-2 md:p-4 text-center border-r border-white/10 last:border-r-0 ${isSameDay(date, new Date()) ? 'bg-purple-500/10' : ''}">
+                    <div class="text-xs text-gray-400 mb-1">${DAY_NAMES_UZ[date.getDay()]}</div>
+                    <div class="text-sm md:text-xl font-bold w-7 h-7 md:w-8 md:h-8 mx-auto rounded-full flex items-center justify-center ${isSameDay(date, new Date()) ? 'bg-purple-500 text-white' : 'text-gray-200'}">
+                        ${date.getDate()}
+                    </div>
+                </div>
+            `).join("")}
+        </div>
+        <div class="flex-1 overflow-y-auto">
+            ${allSlots.map(hour => `
+                <div class="grid grid-cols-8 border-b border-white/5 group">
+                    <div class="p-2 md:p-4 border-r border-white/10 text-gray-500 text-xs flex items-center justify-center">
+                        ${String(hour).padStart(2,'0')}:00
+                    </div>
+                    ${weekDays.map(date => {
+                        const dayEvents = calendarEvents.filter(ev => {
+                            const d = eventLocalDate(ev);
+                            return d && isSameDay(d, date) && d.getHours() === hour;
+                        });
+                        return `<div class="p-1.5 md:p-2 border-r border-white/5 last:border-r-0 min-h-[80px] hover:bg-white/5 transition-colors relative dropzone"
+                                    ondragover="onDragOver(event)" ondrop="onDrop(event, '${date.toISOString()}', ${hour})">
+                            ${dayEvents.map(ev => calendarCard(ev)).join("")}
+                        </div>`;
+                    }).join("")}
+                </div>
+            `).join("")}
+        </div>
+    `;
+}
+
+function renderMonthView(container, monthDate) {
+    const year = monthDate.getFullYear();
+    const month = monthDate.getMonth();
+    const firstDay = new Date(year, month, 1);
+    const startOffset = (firstDay.getDay() === 0 ? 6 : firstDay.getDay() - 1);
+    const gridStart = new Date(firstDay);
+    gridStart.setDate(gridStart.getDate() - startOffset);
+
+    const cells = Array.from({length: 42}, (_, i) => {
+        const d = new Date(gridStart); d.setDate(d.getDate() + i); return d;
+    });
+
+    container.innerHTML = `
+        <div class="grid grid-cols-7 border-b border-white/10 bg-black/20">
+            ${DAY_NAMES_UZ.slice(1).concat(DAY_NAMES_UZ[0]).map(n => `<div class="p-2 text-center text-xs text-gray-500 font-medium">${n}</div>`).join("")}
+        </div>
+        <div class="grid grid-cols-7 flex-1 overflow-y-auto">
+            ${cells.map(date => {
+                const dayEvents = calendarEvents.filter(ev => {
+                    const d = eventLocalDate(ev);
+                    return d && isSameDay(d, date);
+                });
+                const isCurrentMonth = date.getMonth() === month;
+                return `<div class="border-r border-b border-white/5 p-1.5 min-h-[90px] ${isCurrentMonth ? '' : 'opacity-30'} dropzone"
+                            ondragover="onDragOver(event)" ondrop="onDrop(event, '${date.toISOString()}', 9)">
+                    <div class="text-xs mb-1 ${isSameDay(date, new Date()) ? 'text-purple-400 font-bold' : 'text-gray-400'}">${date.getDate()}</div>
+                    <div class="space-y-1">
+                        ${dayEvents.slice(0,2).map(ev => calendarCard(ev, true)).join("")}
+                        ${dayEvents.length > 2 ? `<div class="text-[10px] text-gray-500 px-1">+${dayEvents.length - 2} ko'proq</div>` : ""}
+                    </div>
+                </div>`;
+            }).join("")}
+        </div>
+    `;
+}
+
+function calendarCard(ev, compact) {
+    const d = eventLocalDate(ev);
+    const timeStr = d ? `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}` : "";
+    if (compact) {
+        return `<div draggable="true" ondragstart="onDragStart(event, ${ev.id})" onclick="openEventEditor(${ev.id})"
+                    class="calendar-card bg-gradient-to-br from-purple-600/80 to-blue-600/80 px-1.5 py-1 rounded text-[10px] truncate border border-white/10">
+            ${timeStr} ${escapeHtml(ev.title || 'Nomsiz')}
+        </div>`;
+    }
+    return `<div draggable="true" ondragstart="onDragStart(event, ${ev.id})" onclick="openEventEditor(${ev.id})"
+                class="calendar-card bg-gradient-to-br from-purple-600/80 to-blue-600/80 p-2 md:p-3 rounded-xl border border-white/20 shadow-lg">
+        <div class="text-xs font-semibold mb-1 truncate">${escapeHtml(ev.title || 'Nomsiz Short')}</div>
+        <div class="flex justify-between items-center text-[10px] text-purple-200 gap-1">
+            <span class="flex items-center gap-1"><i data-lucide="clock" style="width:10px;height:10px;"></i> ${timeStr}</span>
+            <span class="bg-black/30 px-1.5 py-0.5 rounded-full truncate">${STATUS_LABELS[ev.status] || ev.status}</span>
+        </div>
+    </div>`;
+}
+
+let draggedEventId = null;
+function onDragStart(e, eventId) {
+    draggedEventId = eventId;
+    e.dataTransfer.effectAllowed = "move";
+}
+function onDragOver(e) {
+    e.preventDefault();
+    e.currentTarget.classList.add("drag-over");
+    e.currentTarget.addEventListener("dragleave", () => e.currentTarget.classList.remove("drag-over"), { once: true });
+}
+async function onDrop(e, dateIso, hour) {
+    e.preventDefault();
+    e.currentTarget.classList.remove("drag-over");
+    if (!draggedEventId) return;
+
+    const ev = calendarEvents.find(x => x.id === draggedEventId);
+    const oldDate = ev ? eventLocalDate(ev) : null;
+    const minute = oldDate ? oldDate.getMinutes() : 0;
+
+    const targetDate = new Date(dateIso);
+    targetDate.setHours(hour, minute, 0, 0);
+
+    try {
+        await api.reschedule(draggedEventId, toLocalISODateTime(targetDate));
+        showToast("Vaqt yangilandi", "success");
+        renderCalendar();
+    } catch (err) {
+        showToast("Xato: " + err.message, "error");
+    }
+    draggedEventId = null;
+}
+
+async function openEventEditor(shortId) {
+    try {
+        const s = await api.getShort(shortId);
+        const playlists = await api.getPlaylists().catch(() => []);
+        const categories = await api.getCategories().catch(() => ({}));
+        const playlistOptions = playlists.map(pl => `<option value="${pl.id}" ${s.playlist_id === pl.id ? "selected" : ""}>${escapeHtml(pl.title)}</option>`).join("");
+        const categoryOptions = Object.entries(categories).map(([id, name]) => `<option value="${id}" ${s.category_id === id ? "selected" : ""}>${escapeHtml(name)}</option>`).join("");
+
+        const d = eventLocalDate(s);
+        const dateVal = d ? `${d.getFullYear()}-${String(d.getMonth()+1).padStart(2,'0')}-${String(d.getDate()).padStart(2,'0')}` : "";
+        const timeVal = d ? `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}` : "09:00";
+
+        openModal(`
+            <div class="flex justify-between items-center mb-5">
+                <h3 class="text-lg font-semibold flex items-center gap-2">${statusBadge(s.status)} Short Tafsiloti</h3>
+                <button onclick="closeModal()" class="text-gray-400 hover:text-white"><i data-lucide="x" style="width:22px;height:22px;"></i></button>
+            </div>
+            <div class="space-y-4">
+                <div><label class="block text-sm font-medium text-gray-400 mb-1">Title</label>
+                    <input type="text" id="ce-title" value="${escapeHtml(s.title || '')}" class="glass-input"></div>
+                <div><label class="block text-sm font-medium text-gray-400 mb-1">Description</label>
+                    <textarea id="ce-description" rows="3" class="glass-input resize-none">${escapeHtml(s.description || '')}</textarea></div>
+                <div class="grid grid-cols-2 gap-4">
+                    <div><label class="block text-sm font-medium text-gray-400 mb-1">Hashtags</label>
+                        <input type="text" id="ce-hashtags" value="${escapeHtml(s.hashtags || '')}" class="glass-input"></div>
+                    <div><label class="block text-sm font-medium text-gray-400 mb-1">Keywords</label>
+                        <input type="text" id="ce-keywords" value="${escapeHtml(s.keywords || '')}" class="glass-input"></div>
+                </div>
+                <div class="grid grid-cols-2 gap-4">
+                    <div><label class="block text-sm font-medium text-gray-400 mb-1">Playlist</label>
+                        <select id="ce-playlist" class="glass-input"><option value="">Tanlanmagan</option>${playlistOptions}</select></div>
+                    <div><label class="block text-sm font-medium text-gray-400 mb-1">Category</label>
+                        <select id="ce-category" class="glass-input">${categoryOptions}</select></div>
+                </div>
+                <div class="grid grid-cols-2 gap-4">
+                    <div><label class="block text-sm font-medium text-gray-400 mb-1">Visibility</label>
+                        <select id="ce-visibility" class="glass-input">
+                            <option value="private" ${s.visibility==='private'?'selected':''}>Private</option>
+                            <option value="unlisted" ${s.visibility==='unlisted'?'selected':''}>Unlisted</option>
+                            <option value="public" ${s.visibility==='public'?'selected':''}>Public</option>
+                        </select></div>
+                    <div class="flex items-end">
+                        <div class="flex items-center justify-between p-3 rounded-xl bg-white/5 w-full">
+                            <span class="text-sm">Kids</span>
+                            <div class="toggle-switch ${s.made_for_kids ? 'active' : ''}" id="ce-kids-toggle" onclick="this.classList.toggle('active')"><div class="toggle-dot"></div></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="grid grid-cols-2 gap-4">
+                    <div><label class="block text-sm font-medium text-gray-400 mb-1">Schedule sana</label>
+                        <input type="date" id="ce-date" value="${dateVal}" class="glass-input"></div>
+                    <div><label class="block text-sm font-medium text-gray-400 mb-1">Upload vaqti</label>
+                        <input type="time" id="ce-time" value="${timeVal}" class="glass-input"></div>
+                </div>
+                <button onclick="saveEventEdits(${s.id})" class="btn-primary w-full flex items-center justify-center gap-2">
+                    <i data-lucide="save" style="width:16px;height:16px;"></i> Saqlash
+                </button>
+            </div>
+        `);
+    } catch (e) {
+        showToast("Xato: " + e.message, "error");
+    }
+}
+
+async function saveEventEdits(shortId) {
+    const payload = {
+        title: document.getElementById("ce-title").value,
+        description: document.getElementById("ce-description").value,
+        hashtags: document.getElementById("ce-hashtags").value,
+        keywords: document.getElementById("ce-keywords").value,
+        playlist_id: document.getElementById("ce-playlist").value || null,
+        category_id: document.getElementById("ce-category").value,
+        visibility: document.getElementById("ce-visibility").value,
+        made_for_kids: document.getElementById("ce-kids-toggle").classList.contains("active"),
+    };
+    const dateVal = document.getElementById("ce-date").value;
+    const timeVal = document.getElementById("ce-time").value;
+
+    try {
+        await api.updateShort(shortId, payload);
+        if (dateVal && timeVal) {
+            const [y, m, day] = dateVal.split("-").map(Number);
+            const [h, min] = timeVal.split(":").map(Number);
+            const newDate = new Date(y, m - 1, day, h, min, 0);
+            await api.reschedule(shortId, toLocalISODateTime(newDate));
+        }
+        showToast("Saqlandi", "success");
+        closeModal();
+        renderCalendar();
+    } catch (e) {
+        showToast("Xato: " + e.message, "error");
+    }
+}
+
+async function openAutoScheduleModal() {
+    const slots = await api.getSlots().catch(() => []);
+    const settings = await api.getSettings().catch(() => ({}));
+
+    openModal(`
+        <div class="flex justify-between items-center mb-5">
+            <h3 class="text-lg font-semibold flex items-center gap-2">
+                <i data-lucide="settings-2" class="text-purple-400" style="width:20px;height:20px;"></i>
+                Auto Schedule Sozlamalari
+            </h3>
+            <button onclick="closeModal()" class="text-gray-400 hover:text-white"><i data-lucide="x" style="width:22px;height:22px;"></i></button>
+        </div>
+
+        <div class="space-y-5">
+            <div>
+                <label class="block text-sm font-medium text-gray-400 mb-2">Vaqt kataklari (soat:daqiqa)</label>
+                <div id="slots-list" class="space-y-2 mb-3">
+                    ${slots.map(s => slotRow(s)).join("")}
+                </div>
+                <div class="flex gap-2">
+                    <input type="time" id="new-slot-time" class="glass-input flex-1">
+                    <button onclick="addNewSlot()" class="btn-secondary px-4">
+                        <i data-lucide="plus" style="width:16px;height:16px;"></i>
+                    </button>
+                </div>
+            </div>
+
+            <div class="border-t border-white/10 pt-4">
+                <label class="block text-sm font-medium text-gray-400 mb-2">Kuniga nechta video yuklash</label>
+                <input type="number" id="daily-count-input" value="${settings.daily_upload_count || 4}" min="1" class="glass-input">
+            </div>
+
+            <div class="border-t border-white/10 pt-4">
+                <label class="block text-sm font-medium text-gray-400 mb-1">Timezone</label>
+                <input type="text" id="timezone-input" value="${currentTimezone}" class="glass-input" placeholder="Asia/Tashkent">
+            </div>
+
+            <div class="flex flex-col gap-2 pt-2">
+                <button onclick="runAutoSchedule()" class="btn-primary w-full flex items-center justify-center gap-2">
+                    <i data-lucide="zap" style="width:16px;height:16px;"></i> Draft Shorts'larni Avtomatik Joylashtirish
+                </button>
+                <p class="text-xs text-gray-500 text-center">Hozircha "draft" holatidagi barcha Shorts navbat bilan bo'sh vaqt kataklariga joylashtiriladi.</p>
+            </div>
+        </div>
+    `);
+}
+
+function slotRow(s) {
+    const timeStr = `${String(s.hour).padStart(2,'0')}:${String(s.minute).padStart(2,'0')}`;
+    return `<div class="flex items-center justify-between p-2.5 rounded-xl bg-white/5" id="slot-row-${s.id}">
+        <span class="text-sm font-medium flex items-center gap-2"><i data-lucide="clock" style="width:14px;height:14px;color:#c084fc;"></i> ${timeStr}</span>
+        <div class="flex items-center gap-2">
+            <div class="toggle-switch ${s.enabled ? 'active' : ''}" onclick="toggleSlotAction(${s.id}, this)"><div class="toggle-dot"></div></div>
+            <button onclick="deleteSlotAction(${s.id})" class="text-red-400 hover:text-red-300 p-1"><i data-lucide="trash-2" style="width:14px;height:14px;"></i></button>
+        </div>
+    </div>`;
+}
+
+async function addNewSlot() {
+    const timeInput = document.getElementById("new-slot-time").value;
+    if (!timeInput) { showToast("Vaqtni tanlang", "error"); return; }
+    const [h, m] = timeInput.split(":").map(Number);
+    try {
+        await api.addSlot(h, m);
+        showToast("Vaqt qatori qo'shildi", "success");
+        openAutoScheduleModal();
+    } catch (e) {
+        showToast("Xato: " + e.message, "error");
+    }
+}
+
+async function deleteSlotAction(id) {
+    try {
+        await api.deleteSlot(id);
+        const row = document.getElementById(`slot-row-${id}`);
+        if (row) row.remove();
+        showToast("O'chirildi", "success");
+    } catch (e) {
+        showToast("Xato: " + e.message, "error");
+    }
+}
+
+async function toggleSlotAction(id, el) {
+    const newState = !el.classList.contains("active");
+    el.classList.toggle("active");
+    try {
+        await api.toggleSlot(id, newState);
+    } catch (e) {
+        el.classList.toggle("active");
+        showToast("Xato: " + e.message, "error");
+    }
+}
+
+async function runAutoSchedule() {
+    const dailyCount = parseInt(document.getElementById("daily-count-input").value) || null;
+    const tz = document.getElementById("timezone-input").value.trim();
+
+    try {
+        if (tz && tz !== currentTimezone) {
+            await api.setTimezone(tz);
+            currentTimezone = tz;
+        }
+        await api.updateSettings({ daily_upload_count: dailyCount });
+        const result = await api.autoSchedule(dailyCount);
+        showToast(`${result.scheduled_count} ta Short vaqt kataklariga joylashtirildi`, "success");
+        closeModal();
+        loadTimezone();
+        renderCalendar();
+    } catch (e) {
+        showToast("Xato: " + e.message, "error");
+    }
+}
+
+loadTimezone();
+renderCalendar();
+setInterval(renderCalendar, 30000);
+</script>
+</body>
+</html>

@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Prompts — Viral Shorts Studio</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="/js/icons.js"></script>
+<link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+<div id="ambient-bg"></div>
+<div id="sidebar" class="sidebar"></div>
+
+<main class="main-content max-w-7xl mx-auto">
+    <div class="mb-6">
+        <h2 class="text-2xl md:text-3xl font-bold mb-1">Prompt Personalization</h2>
+        <p class="text-gray-400 text-sm">Metadata generatsiyasi uchun bir nechta shablon sozlang va saqlang</p>
+    </div>
+
+    <div class="flex flex-col md:flex-row gap-6">
+        <div class="md:w-64 flex-shrink-0 flex flex-col gap-3">
+            <button onclick="createNewPrompt()" class="btn-secondary w-full flex items-center justify-center gap-2">
+                <i data-lucide="plus" style="width:16px;height:16px;"></i> Yangi Shablon
+            </button>
+            <div id="prompts-list" class="space-y-2 flex md:flex-col gap-2 md:gap-2 overflow-x-auto md:overflow-visible pb-2 md:pb-0"></div>
+        </div>
+
+        <div id="prompt-editor" class="flex-1 glass-card p-5 md:p-8 min-h-[400px]"></div>
+    </div>
+</main>
+
+<nav id="bottom-nav" class="bottom-nav"></nav>
+
+<script src="/js/api.js"></script>
+<script src="/js/common.js"></script>
+<script>
+let allPrompts = [];
+let activeEditingId = null;
+
+async function loadPrompts() {
+    try {
+        allPrompts = await api.getPrompts();
+        renderPromptsList();
+        if (!activeEditingId && allPrompts.length) {
+            const active = allPrompts.find(p => p.is_active) || allPrompts[0];
+            selectPrompt(active.id);
+        } else if (activeEditingId) {
+            renderEditor(allPrompts.find(p => p.id === activeEditingId));
+        }
+    } catch (e) {
+        showToast("Xato: " + e.message, "error");
+    }
+}
+
+function renderPromptsList() {
+    const list = document.getElementById("prompts-list");
+    if (!allPrompts.length) {
+        list.innerHTML = `<p class="text-gray-500 text-sm text-center py-4">Shablonlar yo'q</p>`;
+        return;
+    }
+    list.innerHTML = allPrompts.map(p => `
+        <button onclick="selectPrompt(${p.id})" class="text-left px-4 py-3 rounded-xl transition-colors flex-shrink-0 w-48 md:w-full ${activeEditingId === p.id ? 'bg-purple-600 text-white' : 'bg-white/5 text-gray-400 hover:bg-white/10'}">
+            <div class="font-medium text-sm truncate flex items-center gap-1.5">
+                ${p.is_active ? '<i data-lucide="check-circle-2" style="width:14px;height:14px;color:#4ade80;flex-shrink:0;"></i>' : ''}
+                ${escapeHtml(p.name)}
+            </div>
+            <div class="text-xs opacity-70 mt-1">${escapeHtml(p.language)}</div>
+        </button>
+    `).join("");
+    if (window.lucide) lucide.createIcons();
+}
+
+function selectPrompt(id) {
+    activeEditingId = id;
+    renderPromptsList();
+    renderEditor(allPrompts.find(p => p.id === id));
+}
+
+function createNewPrompt() {
+    activeEditingId = null;
+    renderPromptsList();
+    renderEditor(null);
+}
+
+function renderEditor(p) {
+    const editor = document.getElementById("prompt-editor");
+    const isNew = !p;
+    p = p || { name: "", audience: "", language: "uz", tone: "", seo_focus: "", cta_text: "", use_emoji: true, keywords: "", banned_words: "", title_max_length: 100, description_template: "", custom_instructions: "" };
+
+    editor.innerHTML = `
+        <div class="flex justify-between items-center mb-6 flex-wrap gap-3">
+            <h3 class="text-lg md:text-xl font-semibold flex items-center gap-2">
+                <i data-lucide="sparkles" class="text-purple-400" style="width:20px;height:20px;"></i>
+                ${isNew ? "Yangi Shablon" : "Shablonni Tahrirlash"}
+            </h3>
+            <div class="flex gap-2">
+                ${!isNew ? `<button onclick="activateThis(${p.id})" class="btn-secondary text-sm flex items-center gap-1.5 ${p.is_active ? 'opacity-50 pointer-events-none' : ''}"><i data-lucide="${p.is_active ? 'check-circle-2' : 'check'}" style="width:14px;height:14px;"></i>${p.is_active ? 'Faol' : 'Faollashtirish'}</button>` : ""}
+                ${!isNew ? `<button onclick="deleteThis(${p.id})" class="btn-danger text-sm flex items-center gap-1.5"><i data-lucide="trash-2" style="width:14px;height:14px;"></i>O'chirish</button>` : ""}
+                <button onclick="saveThis(${isNew})" class="btn-primary text-sm flex items-center gap-1.5">
+                    <i data-lucide="save" style="width:14px;height:14px;"></i> Saqlash
+                </button>
+            </div>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-400 mb-1">Shablon nomi</label>
+                    <input type="text" id="pf-name" value="${escapeHtml(p.name)}" class="glass-input">
+                </div>
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-400 mb-1">Auditoriya</label>
+                        <input type="text" id="pf-audience" value="${escapeHtml(p.audience)}" class="glass-input" placeholder="Masalan: 18-30 yosh">
+                    </div>
+                    <div>
+                        <label class="block text-sm font-medium text-gray-400 mb-1">Til</label>
+                        <input type="text" id="pf-language" value="${escapeHtml(p.language)}" class="glass-input" placeholder="uz / ru / en">
+                    </div>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-400 mb-1">Uslub / Ohang</label>
+                    <input type="text" id="pf-tone" value="${escapeHtml(p.tone)}" class="glass-input" placeholder="energetic, qiziqarli">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-400 mb-1">SEO fokus</label>
+                    <input type="text" id="pf-seo" value="${escapeHtml(p.seo_focus)}" class="glass-input" placeholder="Trend hashtag va kalit so'zlar">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-400 mb-1">Call-to-Action (CTA)</label>
+                    <input type="text" id="pf-cta" value="${escapeHtml(p.cta_text)}" class="glass-input" placeholder="Obuna bo'ling!">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-400 mb-1">Title maksimal uzunligi</label>
+                    <input type="number" id="pf-title-len" value="${p.title_max_length}" class="glass-input">
+                </div>
+                <div class="flex items-center justify-between p-3 rounded-xl bg-white/5">
+                    <span class="text-sm">Emoji ishlatish</span>
+                    <div class="toggle-switch ${p.use_emoji ? 'active' : ''}" id="pf-emoji-toggle" onclick="this.classList.toggle('active')"><div class="toggle-dot"></div></div>
+                </div>
+            </div>
+
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium text-gray-400 mb-1 flex items-center gap-1.5"><i data-lucide="tag" style="width:14px;height:14px;"></i> Majburiy kalit so'zlar</label>
+                    <input type="text" id="pf-keywords" value="${escapeHtml(p.keywords)}" class="glass-input" placeholder="vergul, bilan, ajratilgan">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-400 mb-1">Taqiqlangan so'zlar</label>
+                    <input type="text" id="pf-banned" value="${escapeHtml(p.banned_words)}" class="glass-input" placeholder="vergul, bilan, ajratilgan">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-400 mb-1">Description shabloni</label>
+                    <textarea id="pf-desc-template" rows="3" class="glass-input resize-none" placeholder="{title}\n{summary}\n{hashtags}">${escapeHtml(p.description_template)}</textarea>
+                </div>
+                <div>
+                    <label class="block text-sm font-medium text-gray-400 mb-1">Qo'shimcha ko'rsatmalar (erkin matn)</label>
+                    <textarea id="pf-custom" rows="6" class="glass-input resize-none" placeholder="Sarlavha diqqat tortuvchi bo'lsin. Kulgili ohangda yoz...">${escapeHtml(p.custom_instructions)}</textarea>
+                </div>
+            </div>
+        </div>
+    `;
+    if (window.lucide) lucide.createIcons();
+}
+
+function collectFormPayload() {
+    return {
+        name: document.getElementById("pf-name").value.trim(),
+        audience: document.getElementById("pf-audience").value.trim(),
+        language: document.getElementById("pf-language").value.trim() || "uz",
+        tone: document.getElementById("pf-tone").value.trim(),
+        seo_focus: document.getElementById("pf-seo").value.trim(),
+        cta_text: document.getElementById("pf-cta").value.trim(),
+        use_emoji: document.getElementById("pf-emoji-toggle").classList.contains("active"),
+        keywords: document.getElementById("pf-keywords").value.trim(),
+        banned_words: document.getElementById("pf-banned").value.trim(),
+        title_max_length: parseInt(document.getElementById("pf-title-len").value) || 100,
+        description_template: document.getElementById("pf-desc-template").value,
+        custom_instructions: document.getElementById("pf-custom").value,
+    };
+}
+
+async function saveThis(isNew) {
+    const payload = collectFormPayload();
+    if (!payload.name) { showToast("Shablon nomini kiriting", "error"); return; }
+    try {
+        if (isNew) {
+            const result = await api.createPrompt(payload);
+            activeEditingId = result.id;
+            showToast("Yangi shablon yaratildi", "success");
+        } else {
+            await api.updatePrompt(activeEditingId, payload);
+            showToast("Shablon saqlandi", "success");
+        }
+        loadPrompts();
+    } catch (e) {
+        showToast("Xato: " + e.message, "error");
+    }
+}
+
+async function activateThis(id) {
+    try {
+        await api.activatePrompt(id);
+        showToast("Shablon faollashtirildi", "success");
+        loadPrompts();
+    } catch (e) {
+        showToast("Xato: " + e.message, "error");
+    }
+}
+
+async function deleteThis(id) {
+    if (!confirm("Bu shablonni o'chirmoqchimisiz?")) return;
+    try {
+        await api.deletePrompt(id);
+        showToast("Shablon o'chirildi", "success");
+        activeEditingId = null;
+        loadPrompts();
+    } catch (e) {
+        showToast("Xato: " + e.message, "error");
+    }
+}
+
+loadPrompts();
+</script>
+</body>
+</html>

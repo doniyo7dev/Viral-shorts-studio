@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Kirish — Viral Shorts Studio</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="/js/icons.js"></script>
+<link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+<div id="ambient-bg">
+    <div class="ambient-orb-purple"></div>
+    <div class="ambient-orb-blue"></div>
+</div>
+
+<main class="min-h-screen flex items-center justify-center px-4">
+    <div class="w-full max-w-sm">
+        <div class="flex items-center justify-center gap-3 mb-8">
+            <div class="w-10 h-10 rounded-lg bg-gradient-to-tr from-purple-500 to-pink-500 flex items-center justify-center">
+                <i data-lucide="sparkles" style="width:22px;height:22px;color:white;"></i>
+            </div>
+            <h1 class="text-2xl font-bold bg-clip-text text-transparent bg-gradient-to-r from-white to-gray-400">
+                Viral Shorts Studio
+            </h1>
+        </div>
+
+        <div class="glass-card p-6">
+            <h2 class="text-lg font-semibold mb-1 text-center">Kim sifatida kirasiz?</h2>
+            <p class="text-gray-400 text-sm text-center mb-6">O'zingizni tanlang, parol talab qilinmaydi.</p>
+
+            <div id="users-list" class="space-y-3">
+                <div class="glass-card p-4 skeleton h-14"></div>
+                <div class="glass-card p-4 skeleton h-14"></div>
+                <div class="glass-card p-4 skeleton h-14"></div>
+            </div>
+
+            <p id="error-msg" class="text-red-400 text-sm text-center mt-4 hidden"></p>
+        </div>
+    </div>
+</main>
+
+<script>
+async function loadUsers() {
+    try {
+        const res = await fetch("/api/auth/users");
+        const users = await res.json();
+        const container = document.getElementById("users-list");
+        if (!users.length) {
+            container.innerHTML = `<p class="text-gray-400 text-sm text-center">Foydalanuvchi topilmadi.</p>`;
+            return;
+        }
+        container.innerHTML = users.map(u => `
+            <button onclick="login(${u.id})" class="w-full glass-card p-4 flex items-center gap-3 hover:bg-white/10 transition text-left">
+                <div class="w-9 h-9 rounded-full bg-gradient-to-tr from-purple-500 to-pink-500 flex items-center justify-center text-sm font-bold flex-shrink-0">
+                    ${u.name.trim().charAt(0).toUpperCase()}
+                </div>
+                <span class="font-medium">${u.name}</span>
+            </button>
+        `).join("");
+        if (window.lucide) lucide.createIcons();
+    } catch (e) {
+        showError("Foydalanuvchilarni yuklab bo'lmadi. Sahifani qayta yuklang.");
+    }
+}
+
+function showError(msg) {
+    const el = document.getElementById("error-msg");
+    el.textContent = msg;
+    el.classList.remove("hidden");
+}
+
+async function login(userId) {
+    try {
+        const res = await fetch("/api/auth/login", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ user_id: userId }),
+        });
+        if (!res.ok) {
+            const data = await res.json().catch(() => null);
+            showError((data && data.detail) || "Kirishda xato yuz berdi.");
+            return;
+        }
+        window.location.href = "/index.html";
+    } catch (e) {
+        showError("Kirishda xato yuz berdi.");
+    }
+}
+
+loadUsers();
+</script>
+</body>
+</html>

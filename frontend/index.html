@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Dashboard — Viral Shorts Studio</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="/js/icons.js"></script>
+<link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+<div id="ambient-bg"></div>
+<div id="sidebar" class="sidebar"></div>
+
+<main class="main-content max-w-7xl mx-auto space-y-6">
+    <div>
+        <h2 class="text-2xl md:text-3xl font-bold mb-1">Dashboard</h2>
+        <p class="text-gray-400 text-sm">Viral Shorts Studio — umumiy ko'rinish</p>
+    </div>
+
+    <div class="grid grid-cols-2 lg:grid-cols-4 gap-4" id="stats-grid">
+        <div class="glass-card p-4 md:p-6 skeleton h-24"></div>
+        <div class="glass-card p-4 md:p-6 skeleton h-24"></div>
+        <div class="glass-card p-4 md:p-6 skeleton h-24"></div>
+        <div class="glass-card p-4 md:p-6 skeleton h-24"></div>
+    </div>
+
+    <div class="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div class="lg:col-span-2 glass-card p-5 md:p-6">
+            <h3 class="text-base md:text-lg font-semibold mb-4 flex items-center gap-2">
+                <i data-lucide="activity" style="width:20px;height:20px;color:#c084fc;"></i>
+                So'nggi Loglar
+            </h3>
+            <div id="logs-list" class="space-y-2 max-h-96 overflow-y-auto"></div>
+        </div>
+
+        <div class="glass-card p-5 md:p-6">
+            <div class="flex items-center justify-between mb-4">
+                <h3 class="text-base md:text-lg font-semibold">Jarayon Navbati</h3>
+                <span id="queue-count-badge" class="badge badge-processing">0</span>
+            </div>
+            <div id="queue-list" class="space-y-3 max-h-96 overflow-y-auto"></div>
+        </div>
+    </div>
+
+    <div class="glass-card p-5 md:p-6">
+        <div class="flex items-center justify-between mb-4">
+            <h3 class="text-base md:text-lg font-semibold flex items-center gap-2">
+                <i data-lucide="hard-drive" style="width:20px;height:20px;color:#60a5fa;"></i>
+                Fayl Menejeri
+            </h3>
+            <select id="folder-select" class="glass-input py-2 text-sm w-auto">
+                <option value="shorts">Render qilingan</option>
+                <option value="uploads">Yuklangan originallar</option>
+                <option value="thumbnails">Thumbnails</option>
+            </select>
+        </div>
+        <div id="storage-usage" class="grid grid-cols-2 md:grid-cols-4 gap-3 mb-4 text-sm"></div>
+        <div id="files-list" class="space-y-2 max-h-80 overflow-y-auto"></div>
+    </div>
+</main>
+
+<nav id="bottom-nav" class="bottom-nav"></nav>
+
+<script src="/js/api.js"></script>
+<script src="/js/common.js"></script>
+<script>
+async function loadStats() {
+    try {
+        const stats = await api.getStats();
+        document.getElementById("stats-grid").innerHTML = `
+            ${statCard("Jami Videolar", stats.total_shorts, "film", "text-blue-400")}
+            ${statCard("Yuklangan", stats.uploaded_count, "check-circle-2", "text-green-400")}
+            ${statCard("Draft", stats.draft_count, "clapperboard", "text-purple-400")}
+            ${statCard("Navbatda", stats.queue_count, "clock", "text-orange-400")}
+        `;
+        if (window.lucide) lucide.createIcons();
+    } catch (e) {
+        showToast("Statistika yuklanmadi: " + e.message, "error");
+    }
+}
+
+function statCard(title, value, icon, colorClass) {
+    return `<div class="glass-card glass-card-hover p-4 md:p-6 transition-colors">
+        <div class="flex justify-between items-start">
+            <div>
+                <p class="text-gray-400 text-xs md:text-sm font-medium mb-1">${title}</p>
+                <h3 class="text-2xl md:text-3xl font-bold">${value}</h3>
+            </div>
+            <div class="p-2 md:p-3 rounded-xl bg-white/10">
+                <i data-lucide="${icon}" class="${colorClass}" style="width:20px;height:20px;"></i>
+            </div>
+        </div>
+    </div>`;
+}
+
+async function loadLogs() {
+    try {
+        const logs = await api.getLogs(30);
+        const list = document.getElementById("logs-list");
+        if (!logs.length) {
+            list.innerHTML = `<p class="text-center text-gray-500 py-8 text-sm">Hozircha loglar yo'q</p>`;
+            return;
+        }
+        const levelColors = { info: "text-blue-400", success: "text-green-400", warning: "text-yellow-400", error: "text-red-400" };
+        const levelIcons = { info: "info", success: "check-circle", warning: "alert-triangle", error: "x-circle" };
+        list.innerHTML = logs.map(l => `
+            <div class="flex items-start gap-2 text-xs md:text-sm py-1.5 border-b border-white/5 last:border-0">
+                <i data-lucide="${levelIcons[l.level] || 'info'}" class="${levelColors[l.level] || 'text-gray-400'} flex-shrink-0 mt-0.5" style="width:14px;height:14px;"></i>
+                <span class="text-gray-300 flex-1">${escapeHtml(l.message)}</span>
+                <span class="text-gray-600 flex-shrink-0 whitespace-nowrap">${new Date(l.created_at + 'Z').toLocaleTimeString('uz-UZ', {hour:'2-digit', minute:'2-digit'})}</span>
+            </div>
+        `).join("");
+        if (window.lucide) lucide.createIcons();
+    } catch (e) { /* jim */ }
+}
+
+async function loadQueue() {
+    try {
+        const queue = await api.getQueue();
+        document.getElementById("queue-count-badge").textContent = queue.length;
+        const list = document.getElementById("queue-list");
+        if (!queue.length) {
+            list.innerHTML = `<p class="text-center text-gray-500 py-8 text-sm">Navbat bo'sh</p>`;
+            return;
+        }
+        const typeLabels = { export_short: "Render", upload_youtube: "YouTube yuklash" };
+        list.innerHTML = queue.map(t => `
+            <div class="p-3 rounded-xl bg-white/5 border border-white/10">
+                <div class="flex justify-between items-center mb-2">
+                    <span class="text-xs font-medium text-gray-300">${typeLabels[t.task_type] || t.task_type} #${t.ref_id || ''}</span>
+                    <span class="text-xs text-purple-400">${t.progress}%</span>
+                </div>
+                <div class="progress-track mb-2"><div class="progress-fill" style="width:${t.progress}%"></div></div>
+                <p class="text-xs text-gray-500 truncate">${escapeHtml(t.message || '')}</p>
+            </div>
+        `).join("");
+    } catch (e) { /* jim */ }
+}
+
+async function loadStorageUsage() {
+    try {
+        const usage = await api.getStorageUsage();
+        document.getElementById("storage-usage").innerHTML = `
+            <div class="glass-card p-3 text-center"><p class="text-gray-400 text-xs mb-1">Yuklangan</p><p class="font-semibold">${usage.uploads}</p></div>
+            <div class="glass-card p-3 text-center"><p class="text-gray-400 text-xs mb-1">Render qilingan</p><p class="font-semibold">${usage.shorts}</p></div>
+            <div class="glass-card p-3 text-center"><p class="text-gray-400 text-xs mb-1">Thumbnails</p><p class="font-semibold">${usage.thumbnails}</p></div>
+            <div class="glass-card p-3 text-center"><p class="text-gray-400 text-xs mb-1">Jami</p><p class="font-semibold text-purple-400">${usage.total}</p></div>
+        `;
+    } catch (e) { /* jim */ }
+}
+
+async function loadFiles() {
+    const folder = document.getElementById("folder-select").value;
+    const list = document.getElementById("files-list");
+    list.innerHTML = loadingSpinner("Fayllar yuklanmoqda...");
+    try {
+        const files = await api.getFiles(folder);
+        if (!files.length) {
+            list.innerHTML = `<p class="text-center text-gray-500 py-8 text-sm">Bu papkada fayl yo'q</p>`;
+            return;
+        }
+        list.innerHTML = files.map(f => `
+            <div class="flex items-center justify-between p-3 rounded-xl bg-white/5 border border-white/10">
+                <div class="flex items-center gap-3 min-w-0">
+                    <i data-lucide="file-video" style="width:18px;height:18px;color:#9ca3af;flex-shrink:0;"></i>
+                    <div class="min-w-0">
+                        <p class="text-sm truncate">${escapeHtml(f.name)}</p>
+                        <p class="text-xs text-gray-500">${f.size_human}</p>
+                    </div>
+                </div>
+                <button onclick="deleteFile('${folder}', '${f.name.replace(/'/g, "\\'")}')" class="text-red-400 hover:text-red-300 p-2 flex-shrink-0">
+                    <i data-lucide="trash-2" style="width:16px;height:16px;"></i>
+                </button>
+            </div>
+        `).join("");
+        if (window.lucide) lucide.createIcons();
+    } catch (e) {
+        list.innerHTML = `<p class="text-center text-red-400 py-8 text-sm">Xato: ${e.message}</p>`;
+    }
+}
+
+async function deleteFile(folder, filename) {
+    if (!confirm(`"${filename}" faylini o'chirmoqchimisiz?`)) return;
+    try {
+        await api.deleteFile(folder, filename);
+        showToast("Fayl o'chirildi", "success");
+        loadFiles();
+        loadStorageUsage();
+    } catch (e) {
+        showToast("O'chirishda xato: " + e.message, "error");
+    }
+}
+
+document.getElementById("folder-select").addEventListener("change", loadFiles);
+
+async function refreshAll() {
+    loadStats();
+    loadLogs();
+    loadQueue();
+}
+
+refreshAll();
+loadStorageUsage();
+loadFiles();
+setInterval(refreshAll, 5000);
+</script>
+</body>
+</html>

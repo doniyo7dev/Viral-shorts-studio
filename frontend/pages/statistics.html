@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Statistika — Viral Shorts Studio</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="/js/icons.js"></script>
+<link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+<div id="ambient-bg"></div>
+<div id="sidebar" class="sidebar"></div>
+
+<main class="main-content max-w-7xl mx-auto space-y-6">
+    <div class="flex items-center justify-between">
+        <div>
+            <h2 class="text-2xl md:text-3xl font-bold mb-1">Statistika</h2>
+            <p class="text-gray-400 text-sm">Kanalingizning real-time ko'rsatkichlari</p>
+        </div>
+        <button onclick="refreshStats()" class="btn-secondary text-sm py-2 px-4 flex items-center gap-2">
+            <i data-lucide="refresh-cw" style="width:16px;height:16px;"></i>
+            Yangilash
+        </button>
+    </div>
+
+    <div id="stats-container">
+        <div class="glass-card p-8 flex flex-col items-center justify-center text-center min-h-[200px]">
+            <div class="w-8 h-8 border-2 border-purple-500 border-t-transparent rounded-full animate-spin mb-3"></div>
+            <p class="text-sm text-gray-500">Statistika yuklanmoqda...</p>
+        </div>
+    </div>
+
+    <div class="glass-card p-5 md:p-6">
+        <h3 class="text-base md:text-lg font-semibold mb-4 flex items-center gap-2">
+            <i data-lucide="video" style="width:20px;height:20px;color:#c084fc;"></i>
+            So'nggi videolar
+        </h3>
+        <div id="recent-videos-list" class="space-y-3"></div>
+    </div>
+</main>
+
+<nav id="bottom-nav" class="bottom-nav"></nav>
+
+<script src="/js/api.js"></script>
+<script src="/js/common.js"></script>
+<script>
+function formatCompactNumber(n) {
+    if (n === null || n === undefined) return "0";
+    if (n >= 1_000_000) return (n / 1_000_000).toFixed(1).replace(/\.0$/, "") + "M";
+    if (n >= 1_000) return (n / 1_000).toFixed(1).replace(/\.0$/, "") + "K";
+    return String(n);
+}
+
+async function loadChannelStats() {
+    const container = document.getElementById("stats-container");
+    try {
+        const stats = await api.getChannelStats();
+
+        if (!stats.connected) {
+            container.innerHTML = emptyState(
+                "youtube",
+                "YouTube akkaunt ulanmagan",
+                "Real-time statistikani ko'rish uchun avval Settings > YouTube bo'limida kanalingizni ulang.",
+                `<a href="settings.html" class="btn-primary text-sm py-2 px-4 inline-block">Sozlamalarga o'tish</a>`
+            );
+            if (window.lucide) lucide.createIcons();
+            return;
+        }
+
+        container.innerHTML = `
+            <div class="glass-card p-5 md:p-6 mb-6 flex items-center gap-4">
+                ${stats.channel_thumbnail ? `<img src="${stats.channel_thumbnail}" class="w-14 h-14 rounded-full border border-white/10" />` : ""}
+                <div>
+                    <p class="text-xs text-gray-400">Kanal</p>
+                    <h3 class="text-lg font-semibold">${escapeHtml(stats.channel_title || "")}</h3>
+                </div>
+            </div>
+            <div class="grid grid-cols-2 lg:grid-cols-3 gap-4">
+                ${statCard("Obunachilar", formatCompactNumber(stats.subscriber_count), "users", "text-pink-400")}
+                ${statCard("Umumiy ko'rishlar", formatCompactNumber(stats.view_count), "eye", "text-blue-400")}
+                ${statCard("Videolar soni", formatCompactNumber(stats.video_count), "clapperboard", "text-purple-400")}
+            </div>
+        `;
+        if (window.lucide) lucide.createIcons();
+    } catch (e) {
+        container.innerHTML = `<div class="glass-card p-6 text-center text-red-400 text-sm">Statistika yuklashda xato: ${escapeHtml(e.message)}</div>`;
+    }
+}
+
+function statCard(title, value, icon, colorClass) {
+    return `<div class="glass-card glass-card-hover p-4 md:p-6 transition-colors">
+        <div class="flex justify-between items-start">
+            <div>
+                <p class="text-gray-400 text-xs md:text-sm font-medium mb-1">${title}</p>
+                <h3 class="text-2xl md:text-3xl font-bold">${value}</h3>
+            </div>
+            <div class="p-2 md:p-3 rounded-xl bg-white/10">
+                <i data-lucide="${icon}" class="${colorClass}" style="width:20px;height:20px;"></i>
+            </div>
+        </div>
+    </div>`;
+}
+
+async function loadRecentVideos() {
+    const list = document.getElementById("recent-videos-list");
+    try {
+        const videos = await api.getRecentVideos(10);
+        if (!videos.length) {
+            list.innerHTML = `<p class="text-center text-gray-500 py-8 text-sm">Hali yuklangan video yo'q</p>`;
+            return;
+        }
+        list.innerHTML = videos.map(v => `
+            <a href="${v.url}" target="_blank" class="flex items-center gap-3 p-3 rounded-xl bg-white/5 border border-white/10 hover:bg-white/10 transition-colors">
+                ${v.thumbnail ? `<img src="${v.thumbnail}" class="w-16 h-12 rounded-lg object-cover flex-shrink-0" />` : `<div class="w-16 h-12 rounded-lg bg-white/10 flex-shrink-0"></div>`}
+                <div class="min-w-0 flex-1">
+                    <p class="text-sm truncate">${escapeHtml(v.title)}</p>
+                    <div class="flex items-center gap-3 text-xs text-gray-500 mt-1">
+                        <span class="flex items-center gap-1"><i data-lucide="eye" style="width:12px;height:12px;"></i>${formatCompactNumber(v.view_count)}</span>
+                        <span class="flex items-center gap-1"><i data-lucide="thumbs-up" style="width:12px;height:12px;"></i>${formatCompactNumber(v.like_count)}</span>
+                        <span class="flex items-center gap-1"><i data-lucide="message-circle" style="width:12px;height:12px;"></i>${formatCompactNumber(v.comment_count)}</span>
+                    </div>
+                </div>
+            </a>
+        `).join("");
+        if (window.lucide) lucide.createIcons();
+    } catch (e) {
+        list.innerHTML = `<p class="text-center text-red-400 py-8 text-sm">Xato: ${escapeHtml(e.message)}</p>`;
+    }
+}
+
+async function refreshStats() {
+    loadChannelStats();
+    loadRecentVideos();
+}
+
+refreshStats();
+setInterval(refreshStats, 30000);
+</script>
+</body>
+</html>

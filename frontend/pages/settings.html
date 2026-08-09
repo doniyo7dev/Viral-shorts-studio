@@ -1,0 +1,324 @@
+<!DOCTYPE html>
+<html lang="uz">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Settings — Viral Shorts Studio</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="/js/icons.js"></script>
+<link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+<div id="ambient-bg"></div>
+<div id="sidebar" class="sidebar"></div>
+
+<main class="main-content max-w-3xl mx-auto space-y-6">
+    <div>
+        <h2 class="text-2xl md:text-3xl font-bold mb-1">Settings</h2>
+        <p class="text-gray-400 text-sm">Yuklash sozlamalari, YouTube ulanish va AI (Groq)</p>
+    </div>
+
+    <div class="flex gap-2 border-b border-white/10 overflow-x-auto pb-px">
+        <button data-tab="upload" class="tab-btn pb-3 px-4 text-sm font-medium border-b-2 border-purple-500 text-purple-400 whitespace-nowrap flex items-center gap-1.5"><i data-lucide="upload" style="width:16px;height:16px;"></i>Yuklash sozlamalari</button>
+        <button data-tab="youtube" class="tab-btn pb-3 px-4 text-sm font-medium border-b-2 border-transparent text-gray-400 whitespace-nowrap flex items-center gap-1.5"><i data-lucide="youtube" style="width:16px;height:16px;"></i>YouTube</button>
+        <button data-tab="ai" class="tab-btn pb-3 px-4 text-sm font-medium border-b-2 border-transparent text-gray-400 whitespace-nowrap flex items-center gap-1.5"><i data-lucide="cpu-chip" style="width:16px;height:16px;"></i>AI (Groq)</button>
+    </div>
+
+    <div id="tab-upload" class="tab-content space-y-5"></div>
+    <div id="tab-youtube" class="tab-content space-y-5 hidden"></div>
+    <div id="tab-ai" class="tab-content space-y-5 hidden"></div>
+</main>
+
+<nav id="bottom-nav" class="bottom-nav"></nav>
+
+<script src="/js/api.js"></script>
+<script src="/js/common.js"></script>
+<script>
+document.querySelectorAll(".tab-btn").forEach(btn => {
+    btn.addEventListener("click", () => {
+        document.querySelectorAll(".tab-btn").forEach(b => {
+            b.classList.remove("border-purple-500", "text-purple-400");
+            b.classList.add("border-transparent", "text-gray-400");
+        });
+        btn.classList.add("border-purple-500", "text-purple-400");
+        btn.classList.remove("border-transparent", "text-gray-400");
+        document.querySelectorAll(".tab-content").forEach(c => c.classList.add("hidden"));
+        document.getElementById("tab-" + btn.dataset.tab).classList.remove("hidden");
+    });
+});
+
+/* =================== YUKLASH SOZLAMALARI (YouTube Studio "Upload defaults" kabi) =================== */
+async function renderUploadTab() {
+    const container = document.getElementById("tab-upload");
+    container.innerHTML = loadingSpinner();
+    const settings = await api.getSettings().catch(() => ({}));
+
+    container.innerHTML = `
+        <div class="p-4 rounded-xl bg-blue-900/20 border border-blue-500/20 flex items-start gap-3">
+            <i data-lucide="info" class="text-blue-400 flex-shrink-0 mt-0.5" style="width:20px;height:20px;"></i>
+            <p class="text-sm text-blue-200">
+                Bu shablonlar faqat AI (Groq) ishlatilmagan yoki sarlavha/tavsif bo'sh qoldirilgan videolar
+                uchun avtomatik qo'llaniladi. <code class="bg-black/30 px-1 rounded">{index}</code> — video tartib raqami bilan almashtiriladi.
+            </p>
+        </div>
+        <div class="glass-card p-5 md:p-6 space-y-4">
+            <h3 class="text-lg font-semibold mb-2 flex items-center gap-2">
+                <i data-lucide="pencil-square" class="text-purple-400" style="width:20px;height:20px;"></i>
+                Default Title va Description
+            </h3>
+            <div>
+                <label class="block text-sm font-medium text-gray-400 mb-1">Default Title</label>
+                <input type="text" id="set-default-title" value="${escapeHtml(settings.default_title_template || '')}" class="glass-input" placeholder="Video #{index}">
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-400 mb-1">Default Description</label>
+                <textarea id="set-default-description" rows="3" class="glass-input resize-none" placeholder="Yangi qiziqarli video! #shorts">${escapeHtml(settings.default_description_template || '')}</textarea>
+            </div>
+            <div>
+                <label class="block text-sm font-medium text-gray-400 mb-1">Default Hashtags</label>
+                <input type="text" id="set-default-hashtags" value="${escapeHtml(settings.default_hashtags || '')}" class="glass-input" placeholder="#shorts #viral">
+            </div>
+            <button onclick="saveUploadSettings()" class="btn-primary w-full flex items-center justify-center gap-2">
+                <i data-lucide="check" style="width:16px;height:16px;"></i> Saqlash
+            </button>
+        </div>
+        <div class="p-4 rounded-xl bg-white/5 border border-white/10 flex items-start gap-3">
+            <i data-lucide="eye" class="text-gray-400 flex-shrink-0 mt-0.5" style="width:20px;height:20px;"></i>
+            <p class="text-sm text-gray-400">
+                Ko'rinish (Visibility) har bir video uchun yuklashda alohida tanlanadi va standart holatda
+                <span class="text-white font-medium">Public</span> qiymatida turadi — istagan videoda buni o'zgartirishingiz mumkin.
+            </p>
+        </div>
+    `;
+    if (window.lucide) lucide.createIcons();
+}
+
+async function saveUploadSettings() {
+    const settings = {
+        default_title_template: document.getElementById("set-default-title").value,
+        default_description_template: document.getElementById("set-default-description").value,
+        default_hashtags: document.getElementById("set-default-hashtags").value,
+    };
+    try {
+        await api.updateSettings(settings);
+        showToast("Sozlamalar saqlandi", "success");
+    } catch (e) {
+        showToast("Xato: " + e.message, "error");
+    }
+}
+
+/* =================== YOUTUBE =================== */
+async function renderYoutubeTab() {
+    const container = document.getElementById("tab-youtube");
+    container.innerHTML = loadingSpinner();
+    const account = await api.getYoutubeAccount().catch(() => ({ connected: false }));
+
+    let accountBlock;
+    if (account.connected) {
+        accountBlock = `<div class="border border-white/10 rounded-xl p-6 flex flex-col items-center text-center mb-6 bg-black/20">
+            ${account.channel_thumbnail ? `<img src="${account.channel_thumbnail}" class="w-16 h-16 rounded-full mb-3 border-2 border-purple-500">` : ""}
+            <p class="font-semibold text-lg mb-1">${escapeHtml(account.channel_title || "Noma'lum kanal")}</p>
+            <p class="text-xs text-gray-500 mb-4">Ulangan: ${formatDateTime(account.connected_at)}</p>
+            <button onclick="disconnectYoutube()" class="btn-danger text-sm flex items-center gap-1.5"><i data-lucide="x-circle" style="width:14px;height:14px;"></i>Disconnect</button>
+        </div>`;
+    } else {
+        accountBlock = `<div class="border border-white/10 rounded-xl p-6 flex flex-col items-center justify-center text-center mb-6 bg-black/20">
+            <p class="text-gray-400 mb-4 text-sm">Hech qanday YouTube akkauntga ulanmagansiz.</p>
+            <button onclick="connectYoutube()" class="bg-white text-black hover:bg-gray-200 px-6 py-3 rounded-xl font-bold flex items-center gap-2 transition-colors">
+                <i data-lucide="youtube" class="text-red-600" style="width:20px;height:20px;"></i>
+                Google OAuth orqali ulanish
+            </button>
+        </div>`;
+    }
+
+    container.innerHTML = `
+        <div class="glass-card p-5 md:p-6">
+            <h3 class="text-lg font-semibold mb-5 flex items-center gap-2">
+                <i data-lucide="youtube" class="text-red-500" style="width:22px;height:22px;"></i>
+                YouTube Akkaunt
+            </h3>
+            ${accountBlock}
+            <div class="space-y-3 pt-4 border-t border-white/10">
+                <h4 class="font-medium text-white text-sm">OAuth Client Secret</h4>
+                <p class="text-xs text-gray-400 mb-3">
+                    Google Cloud Console'dan olingan client_secret.json faylini yuklang. ${account.has_client_secret ? '<span class="text-green-400">Fayl yuklangan.</span>' : ""}
+                </p>
+                <div class="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center">
+                    <label class="btn-secondary text-sm text-center cursor-pointer">
+                        client_secret.json yuklash
+                        <input type="file" id="client-secret-input" accept=".json" class="hidden" onchange="uploadClientSecret()">
+                    </label>
+                    ${account.has_client_secret ? `<button onclick="deleteClientSecretAction()" class="btn-danger text-sm flex items-center gap-1.5"><i data-lucide="trash-2" style="width:14px;height:14px;"></i>O'chirish</button>` : ""}
+                </div>
+            </div>
+        </div>
+        <div class="p-4 rounded-xl bg-yellow-900/20 border border-yellow-500/20 flex items-start gap-3">
+            <i data-lucide="alert-triangle" class="text-yellow-400 flex-shrink-0 mt-0.5" style="width:20px;height:20px;"></i>
+            <p class="text-sm text-yellow-200">
+                Google Cloud Console'da OAuth Redirect URI sifatida <code class="bg-black/30 px-1.5 py-0.5 rounded">http://localhost:8000/api/youtube/oauth/callback</code> qo'shilganligiga ishonch hosil qiling.
+            </p>
+        </div>
+    `;
+    if (window.lucide) lucide.createIcons();
+}
+
+async function uploadClientSecret() {
+    const fileInput = document.getElementById("client-secret-input");
+    if (!fileInput.files.length) return;
+    const formData = new FormData();
+    formData.append("file", fileInput.files[0]);
+    try {
+        await api.uploadClientSecret(formData);
+        showToast("Client Secret muvaffaqiyatli yuklandi", "success");
+        renderYoutubeTab();
+    } catch (e) {
+        showToast("Xato: " + e.message, "error");
+    }
+}
+
+async function deleteClientSecretAction() {
+    if (!confirm("Client Secret faylini o'chirmoqchimisiz? Bu ulanishni ham uzadi.")) return;
+    try {
+        await api.deleteClientSecret();
+        showToast("Client Secret o'chirildi", "success");
+        renderYoutubeTab();
+    } catch (e) {
+        showToast("Xato: " + e.message, "error");
+    }
+}
+
+async function connectYoutube() {
+    try {
+        const result = await api.startOAuth();
+        window.location.href = result.auth_url;
+    } catch (e) {
+        showToast("Xato: " + e.message, "error");
+    }
+}
+
+async function disconnectYoutube() {
+    if (!confirm("YouTube akkauntni uzmoqchimisiz?")) return;
+    try {
+        await api.disconnectYoutube();
+        showToast("Akkaunt uzildi", "success");
+        renderYoutubeTab();
+    } catch (e) {
+        showToast("Xato: " + e.message, "error");
+    }
+}
+
+/* =================== AI (GROQ) =================== */
+async function renderAiTab() {
+    const container = document.getElementById("tab-ai");
+    container.innerHTML = loadingSpinner();
+    const keys = await api.getApiKeys().catch(() => ({ groq: {} }));
+
+    container.innerHTML = `
+        ${apiKeyCard("groq", "Groq API Key", "gsk_...", keys.groq)}
+        <div class="p-4 rounded-xl bg-blue-900/20 border border-blue-500/20 flex items-start gap-3">
+            <i data-lucide="info" class="text-blue-400 flex-shrink-0 mt-0.5" style="width:20px;height:20px;"></i>
+            <p class="text-sm text-blue-200">
+                Groq video audiosini o'qib (transkripsiya) mavzu, til, kategoriya, kalit so'zlar va viral
+                tavsiyalarni chiqaradi, shu asosda Title/Description yozadi. Kalit sozlanmagan yoki
+                o'chirilgan bo'lsa, dastur 100% ishlaydi — Default Title/Description shabloni ishlatiladi.
+            </p>
+        </div>
+    `;
+    if (window.lucide) lucide.createIcons();
+}
+
+function apiKeyCard(provider, label, placeholder, info) {
+    const enabled = info.enabled;
+    const statusColor = info.last_check_status === "ok" ? "text-green-400" : info.last_check_status === "error" ? "text-red-400" : "text-gray-500";
+    const statusText = info.last_check_status === "ok" ? "Ishlayapti" : info.last_check_status === "error" ? "Xato" : "Tekshirilmagan";
+    return `<div class="glass-card p-5 md:p-6">
+        <div class="flex flex-col sm:flex-row justify-between sm:items-center gap-3 mb-5">
+            <h3 class="text-lg font-semibold flex items-center gap-2">
+                <i data-lucide="key" class="text-purple-400" style="width:20px;height:20px;"></i>
+                ${label}
+            </h3>
+            <div class="flex items-center gap-3">
+                <span class="text-xs ${statusColor} flex items-center gap-1">
+                    <i data-lucide="circle" style="width:8px;height:8px;fill:currentColor;"></i> ${statusText}
+                </span>
+                <div class="toggle-switch ${enabled ? 'active' : ''}" onclick="toggleApiEnabled('${provider}', this)"><div class="toggle-dot"></div></div>
+            </div>
+        </div>
+        <div class="space-y-3">
+            ${info.has_key ? `<p class="text-sm text-gray-400 mb-2">Joriy kalit: <span class="font-mono text-gray-300">${info.masked_key}</span></p>` : ""}
+            <input type="password" id="${provider}-key-input" placeholder="${placeholder}" class="glass-input">
+            <div class="flex flex-wrap gap-2 justify-end pt-1">
+                ${info.has_key ? `<button onclick="deleteApiKey('${provider}')" class="btn-danger text-sm flex items-center gap-1.5"><i data-lucide="trash-2" style="width:14px;height:14px;"></i>O'chirish</button>` : ""}
+                <button onclick="testApiKey('${provider}')" class="btn-secondary text-sm flex items-center gap-1.5"><i data-lucide="check-circle-2" style="width:14px;height:14px;"></i>Test qilish</button>
+                <button onclick="saveApiKey('${provider}')" class="btn-primary text-sm flex items-center gap-1.5">
+                    <i data-lucide="check" style="width:14px;height:14px;"></i> Saqlash
+                </button>
+            </div>
+        </div>
+    </div>`;
+}
+
+async function saveApiKey(provider) {
+    const value = document.getElementById(`${provider}-key-input`).value.trim();
+    if (!value) { showToast("Kalitni kiriting", "error"); return; }
+    try {
+        await api.saveApiKey(provider, value);
+        showToast(`${provider} kaliti saqlandi`, "success");
+        renderAiTab();
+    } catch (e) {
+        showToast("Xato: " + e.message, "error");
+    }
+}
+
+async function testApiKey(provider) {
+    const inputVal = document.getElementById(`${provider}-key-input`).value.trim();
+    showToast("Tekshirilmoqda...", "info");
+    try {
+        const result = await api.testApiKey(provider, inputVal || null);
+        showToast(result.message, result.success ? "success" : "error");
+        renderAiTab();
+    } catch (e) {
+        showToast("Xato: " + e.message, "error");
+    }
+}
+
+async function deleteApiKey(provider) {
+    if (!confirm(`${provider} kalitini o'chirmoqchimisiz?`)) return;
+    try {
+        await api.deleteApiKey(provider);
+        showToast("Kalit o'chirildi", "success");
+        renderAiTab();
+    } catch (e) {
+        showToast("Xato: " + e.message, "error");
+    }
+}
+
+async function toggleApiEnabled(provider, el) {
+    const newState = !el.classList.contains("active");
+    el.classList.toggle("active");
+    try {
+        await api.toggleApiKey(provider, newState);
+    } catch (e) {
+        el.classList.toggle("active");
+        showToast("Xato: " + e.message, "error");
+    }
+}
+
+/* OAuth callback natijasini tekshirish */
+const urlParams = new URLSearchParams(window.location.search);
+if (urlParams.get("youtube_connected")) {
+    showToast("YouTube akkaunt muvaffaqiyatli ulandi!", "success");
+    window.history.replaceState({}, "", "/settings.html");
+    document.querySelector('[data-tab="youtube"]').click();
+} else if (urlParams.get("youtube_error")) {
+    showToast("YouTube ulanishida xato: " + urlParams.get("youtube_error"), "error");
+    window.history.replaceState({}, "", "/settings.html");
+    document.querySelector('[data-tab="youtube"]').click();
+}
+
+renderUploadTab();
+renderYoutubeTab();
+renderAiTab();
+</script>
+</body>
+</html>

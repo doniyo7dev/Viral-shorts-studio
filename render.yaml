@@ -1,0 +1,19 @@
+services:
+  - type: web
+    name: viral-shorts-studio
+    runtime: python
+    plan: free
+    buildCommand: "apt-get update && apt-get install -y ffmpeg && pip install -r backend/requirements.txt"
+    startCommand: "cd backend && python main.py"
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+      - key: YOUTUBE_REDIRECT_URI
+        value: https://YOUR-APP-NAME.onrender.com/api/youtube/oauth/callback
+      # DATABASE_URL Render Environment bo'limida qo'lda qo'shiladi (Supabase
+      # Settings > Database > Connection string, "URI" format, Session pooler):
+      # postgresql://postgres.xxxx:PAROL@aws-0-xxxx.pooler.supabase.com:5432/postgres
+    disk:
+      name: shorts-storage
+      mountPath: /opt/render/project/src/backend/storage
+      sizeGB: 1
